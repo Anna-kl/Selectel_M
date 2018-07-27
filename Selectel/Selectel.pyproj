@@ -42,6 +42,11 @@
     <Folder Include="Selectel\templates\" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="CustomProfile.pubxml" />
+    <None Include="FolderProfile.pubxml" />
+    <None Include="CustomProfile1.pubxml" />
+    <None Include="CustomProfile2.pubxml" />
+    <None Include="CustomProfile3.pubxml" />
     <Content Include="requirements.txt" />
     <Content Include="Selectel\static\content\bootstrap.css" />
     <Content Include="Selectel\static\content\bootstrap.min.css" />
