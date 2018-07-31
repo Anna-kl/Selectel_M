@@ -1,6 +1,4 @@
-"""
-Routes and views for the flask application.
-"""
+
 
 from datetime import datetime
 from flask import render_template
@@ -12,6 +10,26 @@ import requests
 from flask_pymongo import PyMongo
 import psycopg2
 
+def Settings(file_path):
+   
+    file = file_path
+    try:
+     with open(file, 'r', encoding='utf8') as f:
+        data = f.read()
+    except:
+         file = file_path
+
+         with open(file, 'r', encoding='utf8') as f:
+                data = f.read()
+    data = data.split('\n')
+    setting = {}
+    setting['dbname']=data[0].replace('dbname:','').replace(' ','')
+    setting['host'] = data[1].replace('host:', '').replace(' ', '')
+    setting['user']=data[2].replace('user:','').replace(' ','')
+
+    setting['password'] = data[3].replace('password:', '').replace(' ', '')
+    return setting
+## конфигурация базы данных MongoDB
 app.config['MONGO_DBNAME'] = 'selectel'
 app.config["MONGO_URI"] = "mongodb://localhost:27017/selectel"
 mongo = PyMongo(app)
@@ -32,30 +50,35 @@ tasks = [
 @app.route('/')
 
 
-
+## метод для работы с проектом
 @app.route('/project', methods=['POST'])
-def get_tasks():
+def task_project():
 
 
     if not request.json:
         abort(400)
-    print (request.json)
+   ## print (request.json)
     answer=request.json
-   
+    ## декодруем json запрос
     value={}
     value['resource']=answer['resource']
      
     if answer['resource']=='Selectel':
+        ## создание проекта
         if answer['task']=='create':
+            ## подключение к базе данных
              conn_string = "dbname='PostgreSQL 9.5' user='postgres' host='localhost' password='2537300' port='5433'"
              try:
                     conn = psycopg2.connect(database="postgres", user="postgres", password="2537300",port=5433)
              except psycopg2.Error as err:
                     print("Connection error: {}".format(err))
              qoutas={}
+             ## поиск проекта с таким же именем
              project=mongo.db.projects.find({'name':answer['name']}).count()
+             ## возвращает ошибку, если есть совпадение имен
              if project!=0:
                 return jsonify({'project': 'already exist'})
+            ## подставляем нужную зону в метод создания по коду из таблицы
              zona=answer['zona']
              sql='''SELECT region, "zone" FROM resources.region where id=test'''
              sql=sql.replace('test',str(zona))
@@ -66,6 +89,7 @@ def get_tasks():
                 data= cur.fetchall()
              except psycopg2.Error as err:
                     jsonify({'report': err})
+            ## создаем словарь квот в нужном формате, на основе запроса пользователя
              qoutas['compute_cores']=[]
              comp=answer['quotas']['compute_cores']
              comp[0]['zone']=data[0][1]
@@ -99,6 +123,7 @@ def get_tasks():
                 qoutas['volume_gigabytes_basic']=comp
              except:
                  d=0
+              ## формирование запроса к системе биллинга для проверки баланса
              value['task']='bill'
              value['quotas']=qoutas
              value['id']=answer['id']
@@ -110,27 +135,32 @@ def get_tasks():
              responce=data.replace('\n','')
              data=json.loads(responce)
              if data['status']=='Ok':
-               ## project=Selectel_api.CreateProject(answer['name'],qoutas)
+                 ## создаем проект
+                project=Selectel_api.CreateProject(answer['name'],qoutas)
+                ## добавляем запись в MongoDB
                 mongo.db.projects.insert({'name':project['name'],'id_company':answer['id'],'resource':answer['resource'],'id':project['id'],'url':project['url'],'enabled':project['enabled'],'quotas':project['quotas']})
+                ## формируем запрос на запись информации о проекте в системе биллинга
                 value={}
                 value['resource']=answer['resource']
-                value['task']='create'
+                value['task']='create_project'
                 value['id_company']=answer['id']
                 value['id_project']=project['id']
                 value['bill']=data['bill']
+                value['full']=project['quotas']
                 value=json.dumps(value)
              
                 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
-                r=requests.post('http://localhost:5500/bill',json=value)
+                r=requests.post('http://localhost:5500/information',json=value)
                 data=r.text
                 responce=data.replace('\n','')
                 data=json.loads(responce)
                 conn.close()
+                ## формирование ответа на запрос
                 if data['report']=='Ok':
-                    return jsonify({'project': 'create'})
+                    return jsonify({'project': project['url']})
                 elif data['report']=='error':
                     return jsonify({'project': 'error'})
-             
+           ## обработка запроса на обновление квот  
         elif answer['task']=='update':
              conn_string = "dbname='PostgreSQL 9.5' user='postgres' host='localhost' password='2537300' port='5433'"
              try:
@@ -195,20 +225,25 @@ def get_tasks():
              project=Selectel_api.UpdateQoatas(answer['name'],qoutas)
           
              jsonify({'project': 'error'})
+        ## запрос на удалениt проекта
         elif answer['task']=='delete':
             try:
+            ## поиск проект по названию
               project=mongo.db.projects.find_one({'name':answer['name']})
               if project is not None:
+                  ## удаление проекта из базы MongoDB и из Selectel
                 answer=mongo.db.projects.delete_one({'name':answer['name']})
                 Selectel_api.DeleteProject(project['id'])
-                if answer.delete_count>0:
+                if answer.count()>0:
                     return jsonify({'project': 'delete'})
                 else:
                    return jsonify({'project': 'not found'})
             except:
                 return jsonify({'project': 'error'})
+        ## добавление подсети в проект
         elif answer['task']=='subnet':
-            conn_string = "dbname='PostgreSQL 9.5' user='postgres' host='localhost' password='2537300' port='5433'"
+            setting=Settings('D://settings_selectel.txt')
+            conn_string = "dbname=\'"+setting['dbname']+'" user=\'"' + setting['user'] + '\'' + " host=\'" + setting['host'] + '\'' + ' password=\'' + setting['password'] + '\''
             try:
                     conn = psycopg2.connect(database="postgres", user="postgres", password="2537300",port=5433)
             except psycopg2.Error as err:
@@ -235,6 +270,7 @@ def get_tasks():
                 data=cur.fetchall()
             except psycopg2.Error as err:
                     jsonify({'report': err})
+            ## определение зоны для подсети на основе кода
             prefix=data[0][0]
             zona=answer['zona']
             sql='''SELECT region FROM resources.region where id=test'''
@@ -248,6 +284,7 @@ def get_tasks():
                     jsonify({'report': err})
 
             region=data[0][0]
+            ## формирование квоты подсети для добавления в базу MongoDB
             subnet={}
             subnet['subnets']=[]
             Subnet={}
@@ -255,7 +292,7 @@ def get_tasks():
             Subnet['prefix_length']=prefix
             Subnet['type']='ipv4'
             Subnet['quantity']=1
-            
+            ## формирование запроса к системе биллинга
             value={}
             value['resource']='Selectel'
             value['task']='subnet'
@@ -269,7 +306,7 @@ def get_tasks():
             responce=data.replace('\n','')
             data=json.loads(responce) 
             if data['report']=='Ok':
-               ## Subnet=Selectel_api.Add_Subset(answer['name'],subnet)
+               ## добавление записи в базу MongoDB и создание подсети в Selectel
                 project=mongo.db.projects.find_one({'name':answer['name']})
                 if project is None:
                     return jsonify({'report': 'project not found'})
@@ -281,6 +318,7 @@ def get_tasks():
                     Subnet['status']=Sub[0]['status']
                  except:
                      return jsonify({'report': 'error'})
+                 ## формирование запроса в системе биллинга для добавлени информации в базу
                  value={}
                  value['bill']=data['bill']
                  value['task']='subnet'
@@ -313,6 +351,7 @@ def get_tasks():
                     return jsonify({'report': 'create'})
                 except:
                     return jsonify({'report': 'error'})
+        ## метод для создания плавающего ip
         elif answer['task']=='floating_ip':
             conn_string = "dbname='PostgreSQL 9.5' user='postgres' host='localhost' password='2537300' port='5433'"
             try:
@@ -320,7 +359,7 @@ def get_tasks():
             except psycopg2.Error as err:
                     print("Connection error: {}".format(err))
           
-            
+            ## Пример структуры для ip
             ip={
                
                 "floatingips": [
@@ -342,7 +381,7 @@ def get_tasks():
                 data= cur.fetchall()
             except psycopg2.Error as err:
                     jsonify({'report': err})
-
+            ## формирование параметров для создания Ip
             region=data[0][0]
             floating={}
             floating['floatingips']=[]
@@ -351,7 +390,7 @@ def get_tasks():
             
          
             Floating['quantity']=answer['count_ip']
-            
+            ## формирование запроса к системе биллинга для проверки баланса
             value={}
             value['resource']='Selectel'
             value['task']='floating_ip'
@@ -365,7 +404,7 @@ def get_tasks():
             responce=data.replace('\n','')
             data=json.loads(responce) 
             if data['report']=='Ok':
-               ## Subnet=Selectel_api.Add_Subset(answer['name'],subnet)
+               ## добавление записи в базу данных MongoDB и создание ip  в Selectel
                 project=mongo.db.projects.find_one({'name':answer['name']})
                 if project is None:
                     return jsonify({'report': 'project not found'})
@@ -377,6 +416,7 @@ def get_tasks():
                         Floating['status']=Sub['status']
                     except:
                          jsonify({'report': 'error'})
+                    ## формирование запроса для записи в системе биллинга
                     value={}
                     value['bill']=data['bill']
                     value['task']='floating_ip'
@@ -412,27 +452,41 @@ def get_tasks():
                 
             else:
                 jsonify({'report': 'enough'})
+        ## метод для удаления подсети
         elif answer['task']=='delete_sub':
             
             subnet=mongo.db.projects.find_one({'name':answer['name']})
             subnet=subnet['subnet']
-            ##subnet.remove(subnet[0])
-            ##mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
+            
             for sub in subnet:
                 if sub['id']==answer['id_services']:
                     Sub=Selectel_api.Delete_Subset(sub)
                     subnet.remove(sub)
+                    value={}
+                 
+                  
+                   
+               
+                    value['id_services']=sub['id']
+                    value['status']='delete'
+                    value=json.dumps(value)
+                    headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                    r=requests.post('http://localhost:5500/information',json=value)
+                
+                    data=r.text
+                    value=json.dumps(value)
                     break
             try:
                 mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
                 return jsonify({'report': 'delete'}) 
             except:
                 return jsonify({'report': 'error'})
+        ## метод для удаления ip
         elif answer['task']=='delete_ip':
+            ## поиск ip в базе данных
             floating_ip=mongo.db.projects.find_one({'name':answer['name']})
             floating_ip=floating_ip['floating_ip']
-            ##subnet.remove(subnet[0])
-            ##mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
+            
             for ip in floating_ip:
                
                 if ip['id']==answer['id_services']:
@@ -454,8 +508,7 @@ def get_tasks():
         elif answer['task']=='delete_sub':
             subnet=mongo.db.projects.find_one({'name':answer['name']})
             subnet=subnet['subnet']
-            ##subnet.remove(subnet[0])
-            ##mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
+            
             for sub in subnet:
                
                 if sub['id']==answer['id_services']:
@@ -474,27 +527,42 @@ def get_tasks():
                 return jsonify({'report': 'delete'}) 
             except:
                 return jsonify({'report': 'error'})
+        ## метод для удаления проекта
         elif answer['task']=='delete_project':
             project=mongo.db.projects.find_one({'name':answer['name']})
            
-            for pj in subnet:
+     
                
-                if pj['id']==project['id']:
                    
-                    Sub=Selectel_api.Delete_Subset(sub)
-                    if Sub==-1:
-                         subnet.remove(ip)
-                         mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
+            Project=Selectel_api.Delete_Project(project)
+
+            if Project!=-1:
+                         project.remove(pj)
+                         mongo.db.projects.delete_one({'name':pj['name']})
                          return jsonify({'report': 'not found'})
-                    else:
-                        subnet.remove(ip)
-                    break
+            else:
+                        ## формирование запроса для
+                         value={}
+                         value['resource']='Selectel'
+                         value['task']='delete_project'
+                       
+                         value['id_project']=project['id']
+                         value=json.dumps(value)
+                      
+                         headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                         r=requests.post('http://localhost:5500/information',json=value)
+                         data=r.text
+                         responce=data.replace('\n','')
+                         data=json.loads(responce) 
+                         if data['report']=='Ok':
+                            
+                   
            
-            try:
-                mongo.db.projects.update({'name':answer['name']},{'$set':{'subnet':subnet}},multi=False)
-                return jsonify({'report': 'delete'}) 
-            except:
-                return jsonify({'report': 'error'})
+                            try:
+                                mongo.db.projects.delete_one({'name':project['name']})
+                                return jsonify({'report': 'delete'}) 
+                            except:
+                                return jsonify({'report': 'error'})
             
             
 
@@ -517,7 +585,7 @@ def create_customers():
     return jsonify({'customer': 'create'})
 
 
-
+## методы для работы с пользователями
 @app.route('/user', methods=['POST'])
 def users():
 
@@ -526,30 +594,37 @@ def users():
     print (request.json)
     answer=request.json
     if answer['resource']=='Selectel':
+        ## создание нового пользователя
         if answer['task']=='create':
-            
+            ## запрос в Selectel на создание
             user=Selectel_api.CreateUser(answer['name'],answer['password'])
             
             if user==-1:
                 return jsonify({'user': 'error'})
             else:
-                mongo.db.users.insert({'name':answer['name'],'id_company':answer['id'],'resource':answer['resource'],'enabled':'True'})
+                ## запись в базу MongoDB о том, что создан новый пользователь
+                mongo.db.users.insert({'name':answer['name'],'id_user':user['id'],'id_company':answer['id'],'resource':answer['resource'],'enabled':'True'})
                 return jsonify({'user': 'create'})
+        ## метод для добавления пользователя в проект
         elif answer['task']=='add_project':
             name_project=answer['name_project']
-            id=mongo.db.projects.find_one({"name":name_project})
+            ## поиск проекта и пользователя в базе
+            project=mongo.db.projects.find_one({"name":name_project})
             update_user=mongo.db.users.find_one({'name':answer['name']})
             if update_user is None:
                 return jsonify({'user': 'not found user'})
-            id=id['id']
+          
            
             
             
-            if id is not None:
-                
-                user=Selectel_api.Add_user_in_project(id,answer['name'])
-                update_user=mongo.db.users.find_one({'name':answer['name']})
-                users_project=[]
+            if project is not None:
+                ## метод для добавления пользователя в проект
+                user=Selectel_api.Add_user_in_project(project['id'],answer['name'])
+                try:
+                    users_project=user['project']
+                except:
+                    users_project=[]
+                    users_project.append(project['id'])
              
                 try:
                     if len(update_user['projects'])>0:
@@ -565,25 +640,30 @@ def users():
 
             else:
                 return jsonify({'user': 'not found project'})
-         
-
-
-@app.route('/contact')
-def contact():
-    """Renders the contact page."""
-    return render_template(
-        'contact.html',
-        title='Contact',
-        year=datetime.now().year,
-        message='Your contact page.'
-    )
-
-@app.route('/about')
-def about():
-    """Renders the about page."""
-    return render_template(
-        'about.html',
-        title='About',
-        year=datetime.now().year,
-        message='Your application description page.'
-    )
+        ## метод для удаления пользователя 
+        elif answer['task']=='delete_user':
+            user=mongo.db.users.find_one({'name':answer['name']})
+            if user is not None:
+                try:
+                    
+                    answer=Selectel_api.DeleteUser(user['id_user'])
+                    if answer==-1:
+                        return jsonify({'user': 'not found user'})
+                    mongo.db.users.delete_one({'name':user['name']})
+                    return jsonify({'user': 'delete'})
+                except:
+                    return jsonify({'user': 'not found user'})
+        ## метод для удаления пользователя из проекта
+        elif answer['task']=='user_delete_from_project':
+            user=mongo.db.users.find_one({'name':answer['name']})
+            if user is not None:
+                try:
+                    
+                    answer=Selectel_api.DeleteUser(user['id_user'])
+                    if answer==-1:
+                        return jsonify({'user': 'not found user'})
+                    mongo.db.users.delete_one({'name':user['name']})
+                    return jsonify({'user': 'delete'})
+                except:
+                    return jsonify({'user': 'not found user'})
+                   
