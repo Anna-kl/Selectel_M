@@ -11,3 +11,7 @@ Mandarin Cloud Broker
 в файле Selectel_api.py описаны методы обращения к внутреннему Api Selectel
 
 runserver.py содержит информацию о строке подключения, в том числе номер порта
+
+в файле selectel.txt содержится информация о Token для авторизации в Selectel
+
+в файле sekectel_settings.txt содержится информация о данных для подключении в базе Postgres
