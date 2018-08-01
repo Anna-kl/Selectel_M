@@ -1,0 +1,4 @@
+dbname:PostgreSQL 9.5
+host:localhost
+user:postgres
+password:2537300
